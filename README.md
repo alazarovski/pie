@@ -1,187 +1,257 @@
 
-<!-- README.md is generated from README.Rmd. Please edit that file -->
-
 # pie
 
 <!-- badges: start -->
 
-<!-- (Optional) Add your badges once you set up CI -->
+<!-- (Optional) Add your badges once you set up CI) -->
 
 <!-- [![R-CMD-check](https://github.com/alazarovski/pie/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/alazarovski/pie/actions/workflows/R-CMD-check.yaml) -->
 
 <!-- badges: end -->
 
-**pie** provides tools to compute and visualize the **PIE
-(Path/Procedure Inefficiency)** indicator for aviation sustainability
-and flight efficiency.  
-It focuses on: - Turning flight trajectories and airport metadata into
-**segment-level** and **flight-level** PIE metrics. - Handling **TMA
-radius** logic, **entry/exit detection**, and **great-circle
-baselines**. - Producing quick plots/tables for validation and
-reporting.
+Tools to compute and explore the **PIE (Path InEfficiency)** indicator
+for aviation sustainability and flight efficiency, built around
+**trajectory points → segments → metrics**. This README uses only the
+three exported functions you’ve implemented:
 
-> ⚠️ This is a work-in-progress. APIs may change. Feel free to open
-> issues/PRs.
+- `compute_pie_metrics()` — end‑to‑end helper that segments
+  trajectories, joins airport coordinates, computes along‑track /
+  cross‑track / segment distances, and returns a `pie` (%).
+- `pt_to_seg_trj()` — converts ordered points per flight into
+  **segments** (entry→exit).
+- `read_openflights_airports()` — reads + normalizes OpenFlights’
+  `airports.dat` (readr backend).
+
+> If your project was created with `usethis::use_readme_rmd()`, you may
+> also have a `README.Rmd` and a Git hook that requires knitting. This
+> file is plain Markdown; if that hook is enabled you’ll need to **knit
+> your README.Rmd** or remove the hook before committing this file.
+
+------------------------------------------------------------------------
+
+## What is PIE?
+
+**(PIE)** measures deviation from an ideal, *direct‑to‑destination path
+(DDP)* over short segments. For each segment:
+
+- **Along‑track distance** $x$: distance progressed toward destination
+  along the great circle from segment start.
+- **Cross‑track distance** $y$: perpendicular offset from that
+  great‑circle path.
+- **PIE** is defined here as an integer percent:
+
+\\ \mathrm{PIE} = \operatorname{round}\\\left(100 \times
+\frac{\|y\|}{x}\right) \\
+
+Both $x$ and $y$ are computed as great‑circle distances (meters).
+Segment length is reported via the Haversine distance.
+
+### Extra Distance (ED) transfer (concept)
+
+When attribution matters (e.g., between airspaces), you can attribute
+“downstream” extra distance using:
+
+\\ ED_C = S_C \times PIE_B \\
+
+where $S_C$ is the path length flown in Airspace C, and $PIE_B$ is the
+inefficiency observed earlier in B. This package exposes the
+**per‑segment PIE** you can aggregate to such constructs.
+
+------------------------------------------------------------------------
 
 ## Installation
-
-Install the development version from GitHub:
 
 ``` r
 # install.packages("pak")
 pak::pak("alazarovski/pie")
 ```
 
-## Quick start
+------------------------------------------------------------------------
 
-Below is a *template* workflow you can adapt. Chunks use `eval = FALSE`
-so the README knits before you’ve implemented everything.
+## Functions at a glance
+
+### `compute_pie_metrics(trj_pt, airports = NULL, cols = list(...), order_by = c("flid","time_over"), quiet = TRUE)`
+
+- **Input**: point‑wise trajectories (`data.table`/`data.frame`).
+  - Required columns via `cols` mapping: `fl_id`, `lon`, `lat`,
+    `time_over` (POSIXct), and typically `adep`, `ades`. `seq_id` is
+    optional.
+- **What it does**:
+  1.  Calls `pt_to_seg_trj()` to build **segments**.
+  2.  Loads airports via `read_openflights_airports()` (or use your own
+      with `airports=`).
+  3.  Computes:
+      - `gc_along_track_dist` (meters),
+      - `gc_cross_track_dist` (meters, absolute value used in PIE),
+      - `seg_distance` (Haversine meters).
+  4.  Adds integer `pie` (%).
+- **Output**: a `data.table` of segments with coordinates, optional
+  times/altitudes, distances, and `pie`.
+
+### `pt_to_seg_trj(trj_data, cols, order_by = c("seq_id","time_over","none"), ...)`
+
+- Builds **one row per adjacent point pair** per flight.
+- Requires `fl_id`, `lon`, `lat`, `time_over`; `adep` and `ades` are
+  strongly recommended.
+- Can compute `dist_m`, `dist_nm`, `dur_s`, and creates a stable
+  `seg_id`.
+
+### `read_openflights_airports(path, check = TRUE, keep = NULL)`
+
+- Reads OpenFlights’ `airports.dat` with `readr`, normalizes codes to
+  uppercase, validates ranges, and optionally **keeps a subset** of
+  columns (e.g., `keep = c("icao_code","longitude","latitude")`).
+
+> **Units**: distances are **meters** (from `geosphere`), nautical miles
+> are provided by `pt_to_seg_trj()` if `compute_distance = TRUE` (via
+> `dist_nm`). The `pie` column is an **integer percent**.
+
+------------------------------------------------------------------------
+
+## Quick start
 
 ``` r
 library(pie)
 library(data.table)
-library(sf)
-```
 
-### 1) Input data (example schema)
-
-``` r
-# Minimal columns expected (customize to your real schema)
-flights <- data.table::data.table(
-  FLT_ID = c("AZ123", "LH456"),
-  ADEP = c("LIRF", "EDDF"),
-  ADES = c("EBBR", "LFPG")
+# Example trajectory points with altitude and timestamps
+trj_pts <- data.table::data.table(
+  fl_id     = c(1, 1, 1,  2, 2),
+  seq_id    = c(1, 2, 3,  1, 2),
+  lon       = c(4.484, 4.500, 4.520,  6.10, 6.30),
+  lat       = c(50.900, 51.000, 51.100, 49.90, 50.05),
+  altitude  = c(0, 1500, 3000,  0, 1200),   # feet (optional)
+  time_over = as.POSIXct(c(
+                 "2025-08-14 12:00:00",
+                 "2025-08-14 12:02:00",
+                 "2025-08-14 12:04:00",
+                 "2025-08-14 12:10:00",
+                 "2025-08-14 12:12:00"
+               ), tz = "UTC"),
+  adep      = c("EBBR","EBBR","EBBR",  "EDDF","EDDF"),
+  ades      = c("LFPG","LFPG","LFPG",  "EBBR","EBBR")
 )
 
-# Trajectory points (WGS84) with ordering & timestamps
-traj <- data.table::data.table(
-  FLT_ID = c("AZ123","AZ123","AZ123","LH456","LH456"),
-  SEQ_ID = c(1L,2L,3L,1L,2L),
-  LON = c(12.24, 6.95, 4.48, 8.56, 6.11),
-  LAT = c(41.80, 50.03, 50.90, 50.04, 49.00),
-  TIME_OVER = as.POSIXct(c(
-    "2025-01-01 10:00:00","2025-01-01 10:50:00","2025-01-01 11:05:00",
-    "2025-01-01 09:35:00","2025-01-01 09:58:00"
-  ), tz = "UTC")
+# End-to-end PIE computation (uses online OpenFlights by default)
+seg_pie <- compute_pie_metrics(
+  trj_pts,
+  cols = list(
+    fl_id     = "fl_id",
+    seq_id    = "seq_id",     # optional; if omitted, order_by="time_over" will generate it
+    lon       = "lon",
+    lat       = "lat",
+    altitude  = "altitude",   # optional
+    time_over = "time_over",
+    adep      = "adep",
+    ades      = "ades"
+  ),
+  order_by = "time_over",     # or "seq_id" if a clean sequence is present
+  quiet = TRUE
+)
+
+# Inspect
+data.table::setDT(seg_pie)[]
+```
+
+### Summaries
+
+``` r
+# simple unweighted average PIE per flight
+seg_pie[ , .(pie_avg = mean(pie, na.rm = TRUE)), by = fl_id][order(fl_id)]
+```
+
+``` r
+# if seg_distance is present (meters), use it as weight
+seg_pie[ , .(
+  pie_wavg = round(weighted.mean(pie, w = seg_distance, na.rm = TRUE), 1)
+), by = fl_id][order(fl_id)]
+```
+
+### Offline / deterministic airports
+
+``` r
+airports <- read_openflights_airports(
+  keep = c("icao_code","longitude","latitude")
+)
+
+seg_pie <- compute_pie_metrics(
+  trj_pts,
+  cols = list(
+    fl_id     = "fl_id",
+    seq_id    = "seq_id",
+    lon       = "lon",
+    lat       = "lat",
+    altitude  = "altitude",
+    time_over = "time_over",
+    adep      = "adep",
+    ades      = "ades"
+  ),
+  order_by = "time_over",
+  airports = airports,  # use local copy
+  quiet = TRUE
 )
 ```
 
-### 2) Build segments & baseline
+### Using the lower‑level segmenter directly
 
 ``` r
-# Segments from ordered points
-seg <- pie::segments_from_points(traj,
-  id_cols = c("FLT_ID"),
-  lon = "LON", lat = "LAT",
-  seq_col = "SEQ_ID"
+# Build segments only; you control what happens next
+seg_only <- pt_to_seg_trj(
+  trj_pts,
+  cols = list(
+    fl_id     = "fl_id",
+    seq_id    = "seq_id",
+    lon       = "lon",
+    lat       = "lat",
+    time_over = "time_over",
+    adep      = "adep",
+    ades      = "ades"
+  ),
+  order_by = "time_over",
+  compute_distance = TRUE,
+  compute_duration = TRUE
 )
 
-# Great-circle baseline distance (ADEP→ADES)
-flights <- pie::add_gc_baseline(flights)
+seg_only[]
 ```
 
-### 3) Compute PIE
+------------------------------------------------------------------------
 
-``` r
-# Example: within a given TMA radius (nm) around ADES, or en-route only
-pie_result <- pie::compute_pie(
-  segments = seg,
-  flights  = flights,
-  mode = c("tma","enroute","full"), # choose what you implement
-  tma_radius_nm = 40
-)
+## Column contracts & tips
 
-# Summaries per flight
-pie_flt <- pie::summarize_pie(pie_result, by = "FLT_ID")
-```
+- **Required for segmentation**: `fl_id`, `lon`, `lat`, `time_over`
+  (POSIXct). `adep`/`ades` are used by `compute_pie_metrics()` to anchor
+  the great‑circle to the **destination**.
+- **Ordering**: If you do **not** provide `seq_id`, use
+  `order_by = "time_over"` so `pt_to_seg_trj()` creates a consistent
+  sequence within each flight.
+- **PIE denominator**: Segments with **non‑positive** or **undefined**
+  along‑track distance are left as `pie = NA`. Filter or impute as
+  appropriate.
+- **Units**: outputs from `geosphere` are **meters**. `pt_to_seg_trj()`
+  also provides `dist_nm` when `compute_distance=TRUE`.
+- **Performance**: both helpers are vectorized and operate on
+  `data.table`s; set keys/indexes downstream as needed.
 
-### 4) Plot & inspect
+------------------------------------------------------------------------
 
-``` r
-pie::plot_pie_distribution(pie_flt)
+## Troubleshooting
 
-# Map check (if you implement sf/leaflet plotting helpers)
-pie::plot_trajectory_map(seg[FLT_ID == "AZ123"])
-```
+- **“airports.dat cannot be read”** — some environments block remote
+  reads. Use `read_openflights_airports(keep=...)` once and pass the
+  resulting table via `airports=` to `compute_pie_metrics()`.
+- **“time_over must be POSIXt”** — ensure your timestamp column is
+  `POSIXct`. Convert with `as.POSIXct(..., tz = "UTC")`.
+- **Git hook complains “README.md is out of date”** — if you have
+  `README.Rmd`, knit it (`devtools::build_readme()`), or remove/adjust
+  the hook if you prefer a plain Markdown README.
 
-## What is PIE?
-
-**PIE** ≈ *observed path vs. ideal baseline* inefficiency metric (you
-decide the exact formula).  
-Common approaches: - Baseline: **great-circle** distance or a reference
-**procedural path**. - Observed: polyline length of the flown trajectory
-or segment subset (e.g., inside TMA). - Output: absolute extra
-distance/time/fuel or **% inefficiency**.
-
-This package aims to keep that logic **transparent** and
-**configurable**.
-
-## Minimal API (to implement)
-
-> Stub signatures you can copy into `R/` files and fill in.
-
-``` r
-#' Build segments from ordered points
-#' @param dt data.table with point rows
-#' @param id_cols character vector of ID columns (e.g., c("FLT_ID"))
-#' @param lon,lat names of lon/lat columns
-#' @param seq_col ordering column within each id
-#' @return data.table of segments (LINESTRING or start/end pairs)
-segments_from_points <- function(dt, id_cols, lon, lat, seq_col) {
-  stop("Not implemented yet.")
-}
-
-#' Add great-circle baseline distance between ADEP and ADES
-#' @param flights data.table with ADEP/ADES
-#' @return flights with gc_baseline_nm
-add_gc_baseline <- function(flights) {
-  stop("Not implemented yet.")
-}
-
-#' Compute PIE metric
-#' @param segments segment table (possibly with sf geometry)
-#' @param flights flight table with baseline metric
-#' @param mode "tma", "enroute", or "full"
-#' @param tma_radius_nm numeric radius for TMA computations
-#' @return data.table with per-segment and/or per-flight PIE components
-compute_pie <- function(segments, flights, mode = "full", tma_radius_nm = 40) {
-  stop("Not implemented yet.")
-}
-
-#' Summarize PIE by grouping key(s)
-summarize_pie <- function(pie_dt, by = "FLT_ID") {
-  stop("Not implemented yet.")
-}
-```
-
-## Reproducible chunks in README
-
-You can run normal R code here as well:
-
-``` r
-summary(cars)
-#>      speed           dist       
-#>  Min.   : 4.0   Min.   :  2.00  
-#>  1st Qu.:12.0   1st Qu.: 26.00  
-#>  Median :15.0   Median : 36.00  
-#>  Mean   :15.4   Mean   : 42.98  
-#>  3rd Qu.:19.0   3rd Qu.: 56.00  
-#>  Max.   :25.0   Max.   :120.00
-```
-
-You can also embed plots:
-
-<img src="man/figures/README-pressure-1.png" width="100%" />
-
-Remember to re-knit when code or figures change:
-
-``` r
-devtools::build_readme()  # keeps README.md in sync
-```
+------------------------------------------------------------------------
 
 ## Contributing
 
-PRs welcome. Please open an issue to discuss substantial changes.
+Issues and PRs are welcome. Please open an issue first for substantial
+changes or API proposals.
 
 ## License
 
