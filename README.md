@@ -40,8 +40,9 @@ three exported functions you’ve implemented:
   great‑circle path.
 - **PIE** is defined here as an integer percent:
 
-\\ \mathrm{PIE} = \operatorname{round}\\\left(100 \times
-\frac{\|y\|}{x}\right) \\
+$$
+\mathrm{PIE} = \mathrm{round}\left( 100 \times \frac{|y|}{x} \right)
+$$
 
 Both $x$ and $y$ are computed as great‑circle distances (meters).
 Segment length is reported via the Haversine distance.
