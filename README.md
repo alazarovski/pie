@@ -41,7 +41,7 @@ three exported functions you’ve implemented:
 - **PIE** is defined here as an integer percent:
 
 $$
-\mathrm{PIE} = \mathrm{round}\left( 100 \times \frac{|y|}{x} \right)
+\mathrm{PIE} = \mathrm{round}\left( 100 \times \frac{y}{x} \right)
 $$
 
 Both $x$ and $y$ are computed as great‑circle distances (meters).
@@ -52,7 +52,9 @@ Segment length is reported via the Haversine distance.
 When attribution matters (e.g., between airspaces), you can attribute
 “downstream” extra distance using:
 
-\\ ED_C = S_C \times PIE_B \\
+$$
+ED_C = S_C \times PIE_B
+$$
 
 where $S_C$ is the path length flown in Airspace C, and $PIE_B$ is the
 inefficiency observed earlier in B. This package exposes the
